@@ -1,0 +1,72 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { icon: '🟧', sys: clang64 }
+
+    name: '🚧${{ matrix.icon }} ${{ matrix.sys }} Build'
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+
+    - name: '🧰 Checkout'
+      uses: actions/checkout@main
+      with:
+        repository: lzw29107/MINGW-packages
+
+    - name: '${{ matrix.icon }} Setup MSYS2'
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: ${{ matrix.sys }}
+        update: true
+        install: >-
+          base-devel
+          
+    - name: '🚧 Build mingw-w64-llvm & mingw-w64-cross-clang'
+      run: |
+          cd mingw-w64-llvm
+          makepkg-mingw --syncdeps --force --install --noconfirm --skippgpcheck
+          cd ..
+          cd mingw-w64-cross-compiler-rt
+          makepkg-mingw --syncdeps --force --install --noconfirm --skippgpcheck
+          cd ..
+          cd mingw-w64-cross-clang
+          makepkg-mingw --syncdeps --force --install --noconfirm --skippgpcheck
+          cd ..
+
+    - name: 'Prepare Artifacts'
+      run: |
+          mkdir artifacts
+          mv mingw-w64-llvm/*.pkg.tar.zst artifacts/
+          mv mingw-w64-cross-compiler-rt/*.pkg.tar.zst artifacts/
+          mv mingw-w64-cross-clang/*.pkg.tar.zst artifacts/
+          echo "version=$(pacman -Qi mingw-w64-clang-x86_64-llvm | grep Version | grep '[0-9]*\.[0-9]*\.[0-9]*-[0-9]*' -o)" > $GITHUB_ENV
+          
+    - name: 'Upload artifact'
+      uses: actions/upload-artifact@main
+      with:
+        name: LLVM_${{ env.version }}_Build
+        path: ${{ github.workspace }}/artifacts
+        compression-level: 9
+
+    - name: 'Create a Release'
+      uses: ncipollo/release-action@main
+      with:
+        allowUpdates	: true
+        commit: main
+        tag: 'v${{ env.version }}'
+        artifacts: 'artifacts/*'
